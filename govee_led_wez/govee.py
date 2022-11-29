@@ -343,6 +343,7 @@ class GoveeController:
             # We don't query the device right away: it can return
             # stale information immediately after we send the data,
             # and then not return any replies for a little while
+            self._fire_device_change(device)
             return device.state
 
         if self.api_key and device.http_definition:
@@ -400,6 +401,7 @@ class GoveeController:
             # We don't query the device right away: it can return
             # stale information immediately after we send the data,
             # and then not return any replies for a little while
+            self._fire_device_change(device)
             return device.state
 
         if self.api_key and device.http_definition:
@@ -457,6 +459,7 @@ class GoveeController:
             # We don't query the device right away: it can return
             # stale information immediately after we send the data,
             # and then not return any replies for a little while
+            self._fire_device_change(device)
             return device.state
 
         if self.api_key and device.http_definition:
@@ -511,6 +514,7 @@ class GoveeController:
             # We don't query the device right away: it can return
             # stale information immediately after we send the data,
             # and then not return any replies for a little while
+            self._fire_device_change(device)
             return device.state
 
         if self.api_key and device.http_definition:
