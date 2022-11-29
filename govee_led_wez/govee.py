@@ -605,7 +605,7 @@ class GoveeController:
                             self._fire_device_change(device)
                         else:
                             _LOGGER.debug(
-                                "%s state is same as previous, skip device change callback",
+                                "%s state is same as previous, skip callback",
                                 device.device_id,
                             )
 
