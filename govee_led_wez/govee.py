@@ -318,7 +318,9 @@ class GoveeController:
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
-    async def set_power_state(self, device: GoveeDevice, turned_on: bool):
+    async def set_power_state(
+        self, device: GoveeDevice, turned_on: bool
+    ) -> GoveeDeviceState:
         if device.lan_definition:
             self._send_lan_command(
                 device.lan_definition,
@@ -329,8 +331,7 @@ class GoveeController:
                     }
                 },
             )
-            await self.update_device_state(device)
-            return
+            return await self.update_device_state(device)
 
         if self.api_key and device.http_definition:
             if "turn" not in device.http_definition.supported_commands:
@@ -358,11 +359,13 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
-            return
+            return device.state
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
-    async def set_color(self, device: GoveeDevice, color: GoveeColor):
+    async def set_color(
+        self, device: GoveeDevice, color: GoveeColor
+    ) -> GoveeDeviceState:
         if device.lan_definition:
             self._send_lan_command(
                 device.lan_definition,
@@ -375,8 +378,7 @@ class GoveeController:
                     }
                 },
             )
-            await self.update_device_state(device)
-            return
+            return await self.update_device_state(device)
 
         if self.api_key and device.http_definition:
             if "color" not in device.http_definition.supported_commands:
@@ -410,11 +412,13 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
-            return
+            return device.state
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
-    async def set_color_temperature(self, device: GoveeDevice, color_temperature: int):
+    async def set_color_temperature(
+        self, device: GoveeDevice, color_temperature: int
+    ) -> GoveeDeviceState:
         if device.lan_definition:
             self._send_lan_command(
                 device.lan_definition,
@@ -427,8 +431,7 @@ class GoveeController:
                     }
                 },
             )
-            await self.update_device_state(device)
-            return
+            return await self.update_device_state(device)
 
         if self.api_key and device.http_definition:
             if "colorTem" not in device.http_definition.supported_commands:
@@ -462,11 +465,13 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
-            return
+            return device.state
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
-    async def set_brightness(self, device: GoveeDevice, brightness_pct: int):
+    async def set_brightness(
+        self, device: GoveeDevice, brightness_pct: int
+    ) -> GoveeDeviceState:
         if device.lan_definition:
             self._send_lan_command(
                 device.lan_definition,
@@ -477,8 +482,7 @@ class GoveeController:
                     }
                 },
             )
-            await self.update_device_state(device)
-            return
+            return await self.update_device_state(device)
 
         if self.api_key and device.http_definition:
             if "brightness" not in device.http_definition.supported_commands:
@@ -511,7 +515,7 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
-            return
+            return device.state
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
     async def _http_poller(self, interval: int):
@@ -548,9 +552,12 @@ class GoveeController:
             transport.close()
 
     def _lan_poller_process_broadcast(self, msg: Dict[str, Any], addr: str):
+        _LOGGER.debug("_lan_poller_process_broadcast msg=%s from %s", msg, addr)
+
         source_ip = addr[0]
         msg = msg["msg"]
         data = msg["data"]
+
         if msg["cmd"] == "scan":
             device = GoveeDevice(device_id=data["device"], model=data["sku"])
             device.lan_definition = GoveeLanDeviceDefinition(
@@ -596,6 +603,11 @@ class GoveeController:
                         if changed:
                             device.state = state
                             self._fire_device_change(device)
+                        else:
+                            _LOGGER.debug(
+                                "%s state is same as previous, skip device change callback",
+                                device.device_id,
+                            )
 
                         self._complete_lan_futures(device)
                         return
