@@ -321,7 +321,16 @@ class GoveeController:
     async def set_power_state(
         self, device: GoveeDevice, turned_on: bool
     ) -> GoveeDeviceState:
+        assumed_state = deepcopy(
+            device.state
+            or GoveeDeviceState(
+                turned_on=True, brightness_pct=0, color=None, color_temperature=None
+            )
+        )
+        assumed_state.turned_on = turned_on
+
         if device.lan_definition:
+            device.state = assumed_state
             self._send_lan_command(
                 device.lan_definition,
                 {
@@ -331,19 +340,15 @@ class GoveeController:
                     }
                 },
             )
-            return await self.update_device_state(device)
+            # We don't query the device right away: it can return
+            # stale information immediately after we send the data,
+            # and then not return any replies for a little while
+            return device.state
 
         if self.api_key and device.http_definition:
             if "turn" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support turn command")
 
-            assumed_state = deepcopy(
-                device.state
-                or GoveeDeviceState(
-                    turned_on=True, brightness_pct=0, color=None, color_temperature=None
-                )
-            )
-            assumed_state.turned_on = turned_on
             await asyncio.wait_for(
                 http_device_control(
                     self.api_key,
@@ -366,7 +371,21 @@ class GoveeController:
     async def set_color(
         self, device: GoveeDevice, color: GoveeColor
     ) -> GoveeDeviceState:
+        assumed_state = deepcopy(
+            device.state
+            or GoveeDeviceState(
+                turned_on=True,
+                brightness_pct=100,
+                color=None,
+                color_temperature=None,
+            )
+        )
+        assumed_state.turned_on = True
+        assumed_state.color = color
+        assumed_state.color_temperature = None
+
         if device.lan_definition:
+            device.state = assumed_state
             self._send_lan_command(
                 device.lan_definition,
                 {
@@ -378,24 +397,14 @@ class GoveeController:
                     }
                 },
             )
-            return await self.update_device_state(device)
+            # We don't query the device right away: it can return
+            # stale information immediately after we send the data,
+            # and then not return any replies for a little while
+            return device.state
 
         if self.api_key and device.http_definition:
             if "color" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support color command")
-
-            assumed_state = deepcopy(
-                device.state
-                or GoveeDeviceState(
-                    turned_on=True,
-                    brightness_pct=100,
-                    color=None,
-                    color_temperature=None,
-                )
-            )
-            assumed_state.turned_on = True
-            assumed_state.color = color
-            assumed_state.color_temperature = None
 
             await asyncio.wait_for(
                 http_device_control(
@@ -419,7 +428,21 @@ class GoveeController:
     async def set_color_temperature(
         self, device: GoveeDevice, color_temperature: int
     ) -> GoveeDeviceState:
+        assumed_state = deepcopy(
+            device.state
+            or GoveeDeviceState(
+                turned_on=True,
+                brightness_pct=100,
+                color=None,
+                color_temperature=None,
+            )
+        )
+        assumed_state.turned_on = True
+        assumed_state.color = None
+        assumed_state.color_temperature = color_temperature
+
         if device.lan_definition:
+            device.state = assumed_state
             self._send_lan_command(
                 device.lan_definition,
                 {
@@ -431,24 +454,14 @@ class GoveeController:
                     }
                 },
             )
-            return await self.update_device_state(device)
+            # We don't query the device right away: it can return
+            # stale information immediately after we send the data,
+            # and then not return any replies for a little while
+            return device.state
 
         if self.api_key and device.http_definition:
             if "colorTem" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support colorTem command")
-
-            assumed_state = deepcopy(
-                device.state
-                or GoveeDeviceState(
-                    turned_on=True,
-                    brightness_pct=100,
-                    color=None,
-                    color_temperature=None,
-                )
-            )
-            assumed_state.turned_on = True
-            assumed_state.color = None
-            assumed_state.color_temperature = color_temperature
 
             await asyncio.wait_for(
                 http_device_control(
@@ -472,7 +485,20 @@ class GoveeController:
     async def set_brightness(
         self, device: GoveeDevice, brightness_pct: int
     ) -> GoveeDeviceState:
+        assumed_state = deepcopy(
+            device.state
+            or GoveeDeviceState(
+                turned_on=True,
+                brightness_pct=100,
+                color=None,
+                color_temperature=None,
+            )
+        )
+        assumed_state.turned_on = True
+        assumed_state.brightness_pct = brightness_pct
+
         if device.lan_definition:
+            device.state = assumed_state
             self._send_lan_command(
                 device.lan_definition,
                 {
@@ -482,23 +508,14 @@ class GoveeController:
                     }
                 },
             )
-            return await self.update_device_state(device)
+            # We don't query the device right away: it can return
+            # stale information immediately after we send the data,
+            # and then not return any replies for a little while
+            return device.state
 
         if self.api_key and device.http_definition:
             if "brightness" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support brightness command")
-
-            assumed_state = deepcopy(
-                device.state
-                or GoveeDeviceState(
-                    turned_on=True,
-                    brightness_pct=100,
-                    color=None,
-                    color_temperature=None,
-                )
-            )
-            assumed_state.turned_on = True
-            assumed_state.brightness_pct = brightness_pct
 
             await asyncio.wait_for(
                 http_device_control(
