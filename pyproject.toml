@@ -1,6 +1,6 @@
 [project]
 name = "govee_led_wez"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
   { name="Wez Furlong", email="wez@wezfurlong.org" },
 ]
@@ -21,8 +21,6 @@ dependencies = [
 max-line-length = 88
 disable = [
   "missing-module-docstring",
-  "missing-class-docstring",
-  "missing-function-docstring",
   "too-few-public-methods",
   "too-many-instance-attributes",
 ]

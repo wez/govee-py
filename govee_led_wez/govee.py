@@ -24,19 +24,25 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class GoveeColor:
+    """Represents an sRGB color"""
+
     red: int = 0
     green: int = 0
     blue: int = 0
 
     def as_tuple(self) -> Tuple[int, int, int]:
+        """Returns (r, g, b)"""
         return (self.red, self.green, self.blue)
 
     def as_json_object(self) -> Dict[str, int]:
+        """Returns {"r":r, "g":b, "b":b}"""
         return {"r": self.red, "g": self.green, "b": self.blue}
 
 
 @dataclass
 class GoveeDeviceState:
+    """Represents the controllable attribute state of the device"""
+
     turned_on: bool = False
     brightness_pct: int = 0
     color: Optional[GoveeColor] = None
@@ -48,6 +54,8 @@ class GoveeDeviceState:
 
 @dataclass
 class GoveeHttpDeviceDefinition:
+    """Device information, available via HTTP API"""
+
     device_id: str
     model: str
     device_name: str
@@ -68,6 +76,7 @@ async def _extract_failure_message(response) -> str:
 
 
 async def http_get_devices(api_key: str) -> List[GoveeHttpDeviceDefinition]:
+    """Requests the list of devices via the HTTP API"""
     ssl_context = ssl.create_default_context(cafile=certifi.where())
     conn = aiohttp.TCPConnector(ssl=ssl_context)
     message = "Failed for an unknown reason"
@@ -101,6 +110,7 @@ async def http_get_devices(api_key: str) -> List[GoveeHttpDeviceDefinition]:
 
 
 async def http_get_state(api_key: str, device_id: str, model: str) -> List[Any]:
+    """Requests a list of properties representing the state of the specified device"""
     ssl_context = ssl.create_default_context(cafile=certifi.where())
     conn = aiohttp.TCPConnector(ssl=ssl_context)
     message = "Failed for an unknown reason"
@@ -120,6 +130,7 @@ async def http_get_state(api_key: str, device_id: str, model: str) -> List[Any]:
 
 
 async def http_device_control(api_key: str, params: Dict[str, Any]):
+    """Sends a control request"""
     ssl_context = ssl.create_default_context(cafile=certifi.where())
     conn = aiohttp.TCPConnector(ssl=ssl_context)
     message = "Failed for an unknown reason"
@@ -138,6 +149,8 @@ async def http_device_control(api_key: str, params: Dict[str, Any]):
 
 @dataclass
 class GoveeLanDeviceDefinition:
+    """Device information, available via LAN API"""
+
     ip_addr: str
     device_id: str
     model: str
@@ -148,6 +161,8 @@ class GoveeLanDeviceDefinition:
 
 
 class GoveeDevice:
+    """Represents a device, identified by its device_id"""
+
     state: Optional[GoveeDeviceState] = None
     http_definition: Optional[GoveeHttpDeviceDefinition] = None
     lan_definition: Optional[GoveeLanDeviceDefinition] = None
@@ -167,6 +182,8 @@ DeviceUpdated = Callable[[GoveeDevice], None]
 
 
 class GoveeController:
+    """Manages a set of lights"""
+
     api_key: Optional[str] = None
     on_device_changed: Optional[DeviceUpdated] = None
     http_poller: Optional[asyncio.Task] = None
@@ -187,14 +204,19 @@ class GoveeController:
         self.api_key = api_key
 
     def set_device_control_timeout(self, timeout: int):
+        """Sets the timeout duration for making control requests"""
         self.device_control_timeout = timeout
 
     def set_device_change_callback(self, on_change: DeviceUpdated):
+        """Sets the callback that will receive updated device notifications"""
         self.on_device_changed = on_change
 
     def start_lan_poller(
         self, interfaces: Optional[List[str]] = None, interval: float = 10
     ):
+        """Start listening for LAN protocol responses on the given set
+        of interfaces.  Will attempt to discover new devices every
+        interval seconds"""
         if self.lan_pollers:
             raise RuntimeError("lan poller is already running")
 
@@ -204,7 +226,10 @@ class GoveeController:
                 asyncio.create_task(self._lan_poller(iface, interval))
             )
 
-    def start_http_poller(self, interval: int):
+    def start_http_poller(self, interval: int = 600):
+        """Start a task to discover devices via the HTTP API.
+        New devices will be discovered every interval seconds.
+        This does NOT poll individual devices"""
         if self.api_key is None:
             raise RuntimeError("api_key is required to use the HTTP api")
         if self.http_poller:
@@ -231,6 +256,8 @@ class GoveeController:
         return devices
 
     def get_device_by_id(self, device_id: str) -> Optional[GoveeDevice]:
+        """Returns the device that corresponds to a given device_id,
+        if known"""
         return self.devices.get(device_id, None)
 
     def _send_lan_command(self, lan_definition: GoveeLanDeviceDefinition, cmd: Any):
@@ -321,6 +348,7 @@ class GoveeController:
     async def set_power_state(
         self, device: GoveeDevice, turned_on: bool
     ) -> GoveeDeviceState:
+        """Set the power state for the specified device"""
         assumed_state = deepcopy(
             device.state
             or GoveeDeviceState(
@@ -365,6 +393,7 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
+            self._fire_device_change(device)
             return device.state
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
@@ -372,6 +401,8 @@ class GoveeController:
     async def set_color(
         self, device: GoveeDevice, color: GoveeColor
     ) -> GoveeDeviceState:
+        """Set the color of the specified device.
+        Implicitly turns the device on."""
         assumed_state = deepcopy(
             device.state
             or GoveeDeviceState(
@@ -423,6 +454,7 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
+            self._fire_device_change(device)
             return device.state
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
@@ -430,6 +462,8 @@ class GoveeController:
     async def set_color_temperature(
         self, device: GoveeDevice, color_temperature: int
     ) -> GoveeDeviceState:
+        """Set the color temperature of the specified device.
+        Implicitly turns the device on."""
         assumed_state = deepcopy(
             device.state
             or GoveeDeviceState(
@@ -481,6 +515,7 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
+            self._fire_device_change(device)
             return device.state
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
@@ -488,6 +523,8 @@ class GoveeController:
     async def set_brightness(
         self, device: GoveeDevice, brightness_pct: int
     ) -> GoveeDeviceState:
+        """Set the brightness of the specified device.
+        Implicitly turns the device on"""
         assumed_state = deepcopy(
             device.state
             or GoveeDeviceState(
@@ -536,6 +573,7 @@ class GoveeController:
                 timeout=self.device_control_timeout,
             )
             device.state = assumed_state
+            self._fire_device_change(device)
             return device.state
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
@@ -648,6 +686,8 @@ class GoveeController:
             self.on_device_changed(device)
 
     def stop(self):
+        """You must call this when you are done using the controller!
+        It will stop the HTTP and LAN listeners"""
         if self.http_poller:
             self.http_poller.cancel()
             self.http_poller = None
@@ -657,6 +697,9 @@ class GoveeController:
 
 
 class GoveeLanListener(asyncio.DatagramProtocol):
+    """Listens for responses from Govee devices that support
+    the LAN protocol"""
+
     transport = None
 
     def __init__(self, controller: GoveeController):
