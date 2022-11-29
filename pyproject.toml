@@ -1,0 +1,47 @@
+[project]
+name = "govee_led_wez"
+version = "0.0.1"
+authors = [
+  { name="Wez Furlong", email="wez@wezfurlong.org" },
+]
+description = "Control Govee LED lights"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "certifi>=2021.10.8",
+  "aiohttp>=3.7.1"
+]
+
+[tool.pylint]
+max-line-length = 88
+disable = [
+  "missing-module-docstring",
+  "missing-class-docstring",
+  "missing-function-docstring",
+  "too-few-public-methods",
+  "too-many-instance-attributes",
+]
+
+
+[project.optional-dependencies]
+dev = [
+  "mypy",
+  "pylint",
+]
+test = [
+  "pytest",
+  "pytest-asyncio",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/wez/govee-py"
+"Bug Tracker" = "https://github.com/wez/govee-py/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
