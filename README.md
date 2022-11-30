@@ -2,7 +2,7 @@
 
 This library provides control over Govee-manufactured lights.  @wez built this
 for use with Home Assistant. You can [find the corresponding hacs-govee-lan
-repo here](https://github.com/wez/hacs-govee-lan).
+repo here](https://github.com/wez/govee-lan-hass).
 
 It has an emphasis on making use of their [LAN
 API](https://app-h5.govee.com/user-manual/wlan-guide) but also makes use of
