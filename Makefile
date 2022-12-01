@@ -15,6 +15,7 @@ test:
 setup:
 	pip install build
 	pip install flit
+	pip install twine
 	flit install --deps=develop
 
 publish:
