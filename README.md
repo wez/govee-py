@@ -29,13 +29,21 @@ if YOUR_API_KEY:
 controller.start_lan_poller()
 
 if YOU_WANT_BLE:
-    # Optional, if you want bluetooth device control
+    # Optional, if you want bluetooth device control.
+
+    # This will disconnect from devices after they are idle
+    # for a while. If you omit this, devices will be disconnected
+    # in case of error. You probably want this.
+    controller.start_ble_idler()
+
     # This will look for new devices in the background,
     # by default every 10 minutes
     controller.start_ble_poller()
-    # This will look for them right now (but note that it needs
-    # to perform discovery and can take several seconds)
-    await controller.query_http_devices()
+
+    # Alternatively: This will look for devices right now,
+    # but note that it needs # to perform discovery and can
+    # take several seconds
+    # await controller.query_ble_devices()
 
 # Devices will now be discovered asynchronously
 ```

@@ -29,6 +29,8 @@ BROADCAST_PORT = 4001
 COMMAND_PORT = 4003
 LISTEN_PORT = 4002
 BROADCAST_ADDR = "239.255.255.250"
+BLE_IDLE_INTERVAL = 60
+BLE_DISCOVER_INTERVAL = 600
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +89,7 @@ class GoveeController:
     api_key: Optional[str] = None
     on_device_changed: Optional[DeviceUpdated] = None
     ble_poller: Optional[asyncio.Task] = None
+    ble_idler: Optional[asyncio.Task] = None
     http_poller: Optional[asyncio.Task] = None
     lan_pollers: List[asyncio.Task]
     http_devices: Dict[str, GoveeHttpDeviceDefinition]
@@ -139,13 +142,25 @@ class GoveeController:
             raise RuntimeError("http poller is already running")
         self.http_poller = asyncio.create_task(self._http_poller(interval))
 
-    def start_ble_poller(self, interval: int = 600):
+    def start_ble_poller(self, interval: int = BLE_DISCOVER_INTERVAL):
         """Start a task to discover devices via bluetooth.
         New devices will be discovered every interval seconds.
         This does NOT poll individual devices"""
         if self.ble_poller:
             raise RuntimeError("ble poller is already running")
         self.ble_poller = asyncio.create_task(self._ble_poller(interval))
+
+    def start_ble_idler(self, interval: int = BLE_IDLE_INTERVAL):
+        """Start a task to disconnect from ble devices after
+        they are idle for a while"""
+        if self.ble_idler:
+            raise RuntimeError("ble idler is already running")
+        self.ble_idler = asyncio.create_task(self._ble_idler(interval))
+
+    async def _ble_idler(self, interval: int):
+        while True:
+            await asyncio.sleep(interval)
+            await self.disconnect_idle_ble_devices(interval)
 
     async def _ble_poller(self, interval: int):
         while True:
@@ -304,7 +319,9 @@ class GoveeController:
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
-    async def disconnect_idle_ble_devices(self, idle_time: int = 60) -> int:
+    async def disconnect_idle_ble_devices(
+        self, idle_time: int = BLE_IDLE_INTERVAL
+    ) -> int:
         """Disconnect any ble devices that have not been used within
         the last idle_time seconds"""
         now = time.monotonic()
@@ -817,6 +834,9 @@ class GoveeController:
         if self.ble_poller:
             self.ble_poller.cancel()
             self.ble_poller = None
+        if self.ble_idler:
+            self.ble_idler.cancel()
+            self.ble_idler = None
         for task in self.lan_pollers:
             task.cancel()
         self.lan_pollers = []
