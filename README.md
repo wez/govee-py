@@ -28,6 +28,15 @@ if YOUR_API_KEY:
     controller.start_http_poller()
 controller.start_lan_poller()
 
+if YOU_WANT_BLE:
+    # Optional, if you want bluetooth device control
+    # This will look for new devices in the background,
+    # by default every 10 minutes
+    controller.start_ble_poller()
+    # This will look for them right now (but note that it needs
+    # to perform discovery and can take several seconds)
+    await controller.query_http_devices()
+
 # Devices will now be discovered asynchronously
 ```
 
@@ -39,13 +48,19 @@ initial request for them is made asynchronously by the background
 http poller task.  If you need the list immediately, you can call
 `controller.query_http_devices()` to obtain that list.
 
-
 *The HTTP API has some tight rate limits*. This library prefers to avoid
 read-after-write operations to verify the state in order to reserve the calls
 for issuing commands to your devices.  This means that, for devices that don't
 support the LAN API, the assumed state may be a bit wonky until the device
 is controlled. You can call `controller.update_device_state()` to
 explicitly retrieve the state.
+
+*BLE is preferred over HTTP*. When we know a device is accessible via BLE,
+then we will attempt to control it via BLE before trying to use HTTP.
+LAN is always attempted first, as it has the lowest latency.
+
+*BLE is currently only usable in conjunction with HTTP and/or LAN discovery*.
+There isn't a BLE-only usage at the moment.
 
 # Contributing
 

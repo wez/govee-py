@@ -1,6 +1,7 @@
 # See:
 # https://govee-public.s3.amazonaws.com/developer-docs/GoveeDeveloperAPIReference.pdf
 # https://app-h5.govee.com/user-manual/wlan-guide
+# https://github.com/egold555/Govee-Reverse-Engineering/blob/master/Products/H6127.md
 
 import asyncio
 from copy import copy, deepcopy
@@ -8,11 +9,21 @@ from dataclasses import dataclass
 import json
 import logging
 import socket
-import ssl
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import aiohttp
-import certifi
+from bleak import BleakScanner, BLEDevice
+from bleak.exc import BleakError
+
+from .ble import BleDeviceEntry, GoveeBlePacket, is_govee_device
+from .color import GoveeColor
+from .http import (
+    GoveeHttpDeviceDefinition,
+    http_device_control,
+    http_get_devices,
+    http_get_state,
+)
+from .models import ModelInfo
 
 BROADCAST_PORT = 4001
 COMMAND_PORT = 4003
@@ -20,23 +31,6 @@ LISTEN_PORT = 4002
 BROADCAST_ADDR = "239.255.255.250"
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class GoveeColor:
-    """Represents an sRGB color"""
-
-    red: int = 0
-    green: int = 0
-    blue: int = 0
-
-    def as_tuple(self) -> Tuple[int, int, int]:
-        """Returns (r, g, b)"""
-        return (self.red, self.green, self.blue)
-
-    def as_json_object(self) -> Dict[str, int]:
-        """Returns {"r":r, "g":b, "b":b}"""
-        return {"r": self.red, "g": self.green, "b": self.blue}
 
 
 @dataclass
@@ -50,101 +44,6 @@ class GoveeDeviceState:
 
     def __repr__(self):
         return str(self.__dict__)
-
-
-@dataclass
-class GoveeHttpDeviceDefinition:
-    """Device information, available via HTTP API"""
-
-    device_id: str
-    model: str
-    device_name: str
-    controllable: bool
-    retrievable: bool
-    supported_commands: List[str]
-    properties: Dict[str, Any]
-
-
-async def _extract_failure_message(response) -> str:
-    try:
-        data = await response.json()
-        if "message" in data:
-            return data["message"]
-    except Exception:  # pylint: disable=broad-except
-        pass
-    return await response.text()
-
-
-async def http_get_devices(api_key: str) -> List[GoveeHttpDeviceDefinition]:
-    """Requests the list of devices via the HTTP API"""
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-    conn = aiohttp.TCPConnector(ssl=ssl_context)
-    message = "Failed for an unknown reason"
-    async with aiohttp.ClientSession(connector=conn) as session:
-        async with session.get(
-            url="https://developer-api.govee.com/v1/devices",
-            headers={"Govee-API-Key": api_key},
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                if (
-                    ("data" in data)
-                    and ("devices" in data["data"])
-                    and isinstance(data["data"]["devices"], list)
-                ):
-                    return [
-                        GoveeHttpDeviceDefinition(
-                            device_id=d["device"],
-                            model=d["model"],
-                            device_name=d["deviceName"],
-                            controllable=d["controllable"],
-                            retrievable=d["retrievable"],
-                            supported_commands=d["supportCmds"],
-                            properties=d["properties"],
-                        )
-                        for d in data["data"]["devices"]
-                    ]
-
-            message = await _extract_failure_message(response)
-    raise RuntimeError(f"failed to get devices: {message}")
-
-
-async def http_get_state(api_key: str, device_id: str, model: str) -> List[Any]:
-    """Requests a list of properties representing the state of the specified device"""
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-    conn = aiohttp.TCPConnector(ssl=ssl_context)
-    message = "Failed for an unknown reason"
-    async with aiohttp.ClientSession(connector=conn) as session:
-        async with session.get(
-            url="https://developer-api.govee.com/v1/devices/state",
-            headers={"Govee-API-Key": api_key},
-            params={"model": model, "device": device_id},
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                if "data" in data and "properties" in data["data"]:
-                    return data["data"]["properties"]
-
-            message = await _extract_failure_message(response)
-    raise RuntimeError(f"failed to get device state: {message}")
-
-
-async def http_device_control(api_key: str, params: Dict[str, Any]):
-    """Sends a control request"""
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-    conn = aiohttp.TCPConnector(ssl=ssl_context)
-    message = "Failed for an unknown reason"
-    async with aiohttp.ClientSession(connector=conn) as session:
-        async with session.put(
-            url="https://developer-api.govee.com/v1/devices/control",
-            headers={"Govee-API-Key": api_key},
-            json=params,
-        ) as response:
-            if response.status == 200:
-                resp = await response.json()
-                return resp
-            message = await _extract_failure_message(response)
-    raise RuntimeError(f"failed to control device: {message}")
 
 
 @dataclass
@@ -166,6 +65,7 @@ class GoveeDevice:
     state: Optional[GoveeDeviceState] = None
     http_definition: Optional[GoveeHttpDeviceDefinition] = None
     lan_definition: Optional[GoveeLanDeviceDefinition] = None
+    ble_device: Optional[BLEDevice] = None
     device_id: str
     model: str
 
@@ -186,14 +86,17 @@ class GoveeController:
 
     api_key: Optional[str] = None
     on_device_changed: Optional[DeviceUpdated] = None
+    ble_poller: Optional[asyncio.Task] = None
     http_poller: Optional[asyncio.Task] = None
     lan_pollers: List[asyncio.Task]
     http_devices: Dict[str, GoveeHttpDeviceDefinition]
+    ble_devices: Dict[str, BleDeviceEntry]
     devices: Dict[str, GoveeDevice]
     waiting_for_status: Dict[str, List[asyncio.Future]]
     device_control_timeout: int = 10
 
     def __init__(self):
+        self.ble_devices = {}
         self.http_devices = {}
         self.lan_pollers = []
         self.devices = {}
@@ -236,6 +139,59 @@ class GoveeController:
             raise RuntimeError("http poller is already running")
         self.http_poller = asyncio.create_task(self._http_poller(interval))
 
+    def start_ble_poller(self, interval: int = 600):
+        """Start a task to discover devices via bluetooth.
+        New devices will be discovered every interval seconds.
+        This does NOT poll individual devices"""
+        if self.ble_poller:
+            raise RuntimeError("ble poller is already running")
+        self.ble_poller = asyncio.create_task(self._ble_poller(interval))
+
+    async def _ble_poller(self, interval: int):
+        while True:
+            await self.query_ble_devices()
+            await asyncio.sleep(interval)
+
+    def _get_device_by_ble_address(self, address: str) -> Optional[GoveeDevice]:
+        for device in self.devices.values():
+            if device.device_id.endswith(address):
+                return device
+        return None
+
+    def register_ble_device(self, ble_device: BLEDevice):
+        """Registers a known-Govee bluetooth device by its address"""
+        entry = self.ble_devices.get(ble_device.address, None)
+        if not entry:
+            entry = BleDeviceEntry(ble_device)
+            self.ble_devices[ble_device.address] = entry
+
+        # We don't have enough information available via BLE
+        # to synthesize new, complete devices just from BLE,
+        # so this only associates with devices we've found via
+        # HTTP or LAN.
+        # NOTE: we COULD do this, if we generated a placeholder
+        # with just the BLE info, then swizzled it out later
+        if dev := self._get_device_by_ble_address(ble_device.address):
+            if dev.ble_device is None:
+                dev.ble_device = ble_device
+                self._fire_device_change(dev)
+
+    async def query_ble_devices(self) -> List[BLEDevice]:
+        """Make an immediate call to the ble scanner to enumerate
+        bluetooth devices. Filters the list to those for which
+        is_govee_device returns true.
+        Registers the devices in the controller state, and returns
+        the underlying BLEDevice for each discovered Govee ble device"""
+        result = []
+        ble_devices = await BleakScanner.discover(return_adv=True)
+        for device, adv in ble_devices.values():
+            if not is_govee_device(adv):
+                continue
+            self.register_ble_device(device)
+            result.append(device)
+
+        return result
+
     async def query_http_devices(self) -> List[GoveeHttpDeviceDefinition]:
         """Make an immediate call to the HTTP API to list available devices"""
         if self.api_key is None:
@@ -246,11 +202,14 @@ class GoveeController:
         for definition in devices:
             if dev := self.devices.get(definition.device_id, None):
                 dev.http_definition = definition
+                if self._match_devices(dev):
+                    self._fire_device_change(dev)
             else:
                 # Newly discovered
                 dev = GoveeDevice(definition.device_id, definition.model)
                 dev.http_definition = definition
                 self.devices[dev.device_id] = dev
+                self._match_devices(dev)
                 self._fire_device_change(dev)
 
         return devices
@@ -345,6 +304,65 @@ class GoveeController:
 
         raise RuntimeError("either call start_lan_poller or set_http_api_key")
 
+    async def disconnect_idle_ble_devices(self, idle_time: int = 60) -> int:
+        """Disconnect any ble devices that have not been used within
+        the last idle_time seconds"""
+        now = time.monotonic()
+        count = 0
+        for entry in self.ble_devices.values():
+            if entry.last_use is not None and now - entry.last_use >= idle_time:
+                await entry.disconnect()
+                count += 1
+        return count
+
+    async def _disconnect_lru_ble_device(self) -> bool:
+        lru = None
+        for entry in self.ble_devices.values():
+            if entry.last_use is not None:
+                if lru is None:
+                    lru = entry
+                    continue
+                if entry.last_use < lru.last_use:
+                    lru = entry
+                    continue
+
+        if lru:
+            await lru.disconnect()
+            return True
+
+        return False
+
+    async def _ble_device_control(self, device: GoveeDevice, pkt: bytes):
+        assert device.ble_device is not None
+        entry = self.ble_devices[device.ble_device.address]
+        error = None
+
+        try:
+            _LOGGER.debug("sending ble control to %s: %s", device.device_id, pkt)
+            await entry.write_gatt_char(pkt)
+            return
+        except BleakError as exc:
+            error = exc
+            _LOGGER.debug(
+                "unable to connect to %s via BLE",
+                device.device_id,
+                exc_info=exc,
+            )
+
+        # We may have too many clients active; try to manage them
+        if await self.disconnect_idle_ble_devices() > 0:
+            # Make another attempt
+            await entry.write_gatt_char(pkt)
+            return
+
+        # Try evicting the least recently used entry
+        if await self._disconnect_lru_ble_device():
+            # Make another attempt
+            await entry.write_gatt_char(pkt)
+            return
+
+        raise error
+
     async def set_power_state(
         self, device: GoveeDevice, turned_on: bool
     ) -> GoveeDeviceState:
@@ -373,6 +391,23 @@ class GoveeController:
             # and then not return any replies for a little while
             self._fire_device_change(device)
             return device.state
+
+        if device.ble_device:
+            pkt = GoveeBlePacket.power(turned_on)
+            try:
+                await asyncio.wait_for(
+                    self._ble_device_control(device, pkt),
+                    timeout=self.device_control_timeout,
+                )
+                device.state = assumed_state
+                self._fire_device_change(device)
+                return device.state
+            except BleakError as exc:
+                _LOGGER.debug(
+                    "unable to connect to %s via BLE, will use other methods",
+                    device.device_id,
+                    exc_info=exc,
+                )
 
         if self.api_key and device.http_definition:
             if "turn" not in device.http_definition.supported_commands:
@@ -435,6 +470,23 @@ class GoveeController:
             self._fire_device_change(device)
             return device.state
 
+        if device.ble_device:
+            pkt = GoveeBlePacket.rgb_color(color, ModelInfo.resolve(device.model))
+            try:
+                await asyncio.wait_for(
+                    self._ble_device_control(device, pkt),
+                    timeout=self.device_control_timeout,
+                )
+                device.state = assumed_state
+                self._fire_device_change(device)
+                return device.state
+            except BleakError as exc:
+                _LOGGER.debug(
+                    "unable to connect to %s via BLE, will use other methods",
+                    device.device_id,
+                    exc_info=exc,
+                )
+
         if self.api_key and device.http_definition:
             if "color" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support color command")
@@ -496,6 +548,25 @@ class GoveeController:
             self._fire_device_change(device)
             return device.state
 
+        if device.ble_device:
+            pkt = GoveeBlePacket.color_temperature(
+                color_temperature, ModelInfo.resolve(device.model)
+            )
+            try:
+                await asyncio.wait_for(
+                    self._ble_device_control(device, pkt),
+                    timeout=self.device_control_timeout,
+                )
+                device.state = assumed_state
+                self._fire_device_change(device)
+                return device.state
+            except BleakError as exc:
+                _LOGGER.debug(
+                    "unable to connect to %s via BLE, will use other methods",
+                    device.device_id,
+                    exc_info=exc,
+                )
+
         if self.api_key and device.http_definition:
             if "colorTem" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support colorTem command")
@@ -554,6 +625,25 @@ class GoveeController:
             self._fire_device_change(device)
             return device.state
 
+        if device.ble_device:
+            pkt = GoveeBlePacket.brightness(
+                brightness_pct, ModelInfo.resolve(device.model)
+            )
+            try:
+                await asyncio.wait_for(
+                    self._ble_device_control(device, pkt),
+                    timeout=self.device_control_timeout,
+                )
+                device.state = assumed_state
+                self._fire_device_change(device)
+                return device.state
+            except BleakError as exc:
+                _LOGGER.debug(
+                    "unable to connect to %s via BLE, will use other methods",
+                    device.device_id,
+                    exc_info=exc,
+                )
+
         if self.api_key and device.http_definition:
             if "brightness" not in device.http_definition.supported_commands:
                 raise RuntimeError("device doesn't support brightness command")
@@ -610,90 +700,145 @@ class GoveeController:
         finally:
             transport.close()
 
-    def _lan_poller_process_broadcast(self, msg: Dict[str, Any], addr: str):
+    def _process_lan_scan(self, data: Dict[str, Any]):
+        device = GoveeDevice(device_id=data["device"], model=data["sku"])
+        device.lan_definition = GoveeLanDeviceDefinition(
+            ip_addr=data["ip"],
+            device_id=data["device"],
+            model=data["sku"],
+            ble_hardware_version=data["bleVersionHard"],
+            ble_software_version=data["bleVersionSoft"],
+            wifi_hardware_version=data["wifiVersionHard"],
+            wifi_software_version=data["wifiVersionSoft"],
+        )
+
+        if existing := self.devices.get(device.device_id, None):
+            changed = existing.lan_definition != device.lan_definition
+            if changed:
+                existing.lan_definition = device.lan_definition
+            if self._match_devices(device):
+                changed = True
+            if changed:
+                self._fire_device_change(existing)
+        else:
+            # Newly discovered
+            self.devices[device.device_id] = device
+            self._match_devices(device)
+            self._fire_device_change(device)
+
+    def _process_lan_status(self, data: Dict[str, Any], addr: Tuple[str, int]):
+        source_ip = addr[0]
+        color = None
+        if rgb := data.get("color", None):
+            color = GoveeColor(
+                red=rgb["r"],
+                green=rgb["g"],
+                blue=rgb["b"],
+            )
+        state = GoveeDeviceState(
+            turned_on=data["onOff"] == 1,
+            brightness_pct=data["brightness"],
+            color=color,
+            color_temperature=data.get("colorTemInKelvin", None),
+        )
+        for device in self.devices.values():
+            if lan := device.lan_definition:
+                if lan.ip_addr == source_ip:
+                    changed = device.state != state
+                    if changed:
+                        device.state = state
+                        self._fire_device_change(device)
+                    else:
+                        _LOGGER.debug(
+                            "%s state is same as previous, skip callback",
+                            device.device_id,
+                        )
+
+                    self._complete_lan_futures(device)
+                    return
+
+        _LOGGER.warning(
+            "datagram_received: didn't find device for %r from %s %r",
+            data,
+            addr,
+            state,
+        )
+
+    def _lan_poller_process_broadcast(self, msg: Dict[str, Any], addr: Tuple[str, int]):
         _LOGGER.debug("_lan_poller_process_broadcast msg=%s from %s", msg, addr)
 
-        source_ip = addr[0]
         msg = msg["msg"]
         data = msg["data"]
 
         if msg["cmd"] == "scan":
-            device = GoveeDevice(device_id=data["device"], model=data["sku"])
-            device.lan_definition = GoveeLanDeviceDefinition(
-                ip_addr=data["ip"],
-                device_id=data["device"],
-                model=data["sku"],
-                ble_hardware_version=data["bleVersionHard"],
-                ble_software_version=data["bleVersionSoft"],
-                wifi_hardware_version=data["wifiVersionHard"],
-                wifi_software_version=data["wifiVersionSoft"],
-            )
-
-            if existing := self.devices.get(device.device_id, None):
-                changed = existing.lan_definition != device.lan_definition
-                if changed:
-                    existing.lan_definition = device.lan_definition
-                    self._fire_device_change(existing)
-            else:
-                # Newly discovered
-                self.devices[device.device_id] = device
-                self._fire_device_change(device)
-
+            self._process_lan_scan(data)
             return
 
         if msg["cmd"] == "devStatus":
-            color = None
-            if rgb := data.get("color", None):
-                color = GoveeColor(
-                    red=rgb["r"],
-                    green=rgb["g"],
-                    blue=rgb["b"],
-                )
-            state = GoveeDeviceState(
-                turned_on=data["onOff"] == 1,
-                brightness_pct=data["brightness"],
-                color=color,
-                color_temperature=data.get("colorTemInKelvin", None),
-            )
-            for device in self.devices.values():
-                if lan := device.lan_definition:
-                    if lan.ip_addr == source_ip:
-                        changed = device.state != state
-                        if changed:
-                            device.state = state
-                            self._fire_device_change(device)
-                        else:
-                            _LOGGER.debug(
-                                "%s state is same as previous, skip callback",
-                                device.device_id,
-                            )
-
-                        self._complete_lan_futures(device)
-                        return
-
-            _LOGGER.warning(
-                "datagram_received: didn't find device for %r from %s %r",
-                msg,
-                addr,
-                state,
-            )
+            self._process_lan_status(data, addr)
             return
 
         _LOGGER.warning("unknown msg: %r from %s", msg, addr)
+
+    def _match_devices(self, device: GoveeDevice) -> bool:
+        changed = False
+
+        if not device.ble_device and self.ble_devices:
+            # See if we can match them up
+            for entry in self.ble_devices.values():
+                if device.device_id.endswith(entry.device.address):
+                    device.ble_device = entry.device
+                    changed = True
+
+        if not device.http_definition and self.http_devices:
+            device.http_definition = self.http_devices.get(device.device_id, None)
+            if device.http_definition is not None:
+                changed = True
+
+        return changed
 
     def _fire_device_change(self, device: GoveeDevice):
         if self.on_device_changed:
             self.on_device_changed(device)
 
-    def stop(self):
+    async def async_stop(self):
         """You must call this when you are done using the controller!
         It will stop the HTTP and LAN listeners"""
+
+        for entry in self.ble_devices.values():
+            await entry.disconnect()
+
+        self._stop_common()
+
+    def _stop_common(self):
         if self.http_poller:
             self.http_poller.cancel()
             self.http_poller = None
+        if self.ble_poller:
+            self.ble_poller.cancel()
+            self.ble_poller = None
         for task in self.lan_pollers:
             task.cancel()
         self.lan_pollers = []
+
+    def stop(self):
+        """You must call this when you are done using the controller!
+        It will stop the HTTP and LAN listeners"""
+
+        entries = []
+        for entry in self.ble_devices.values():
+            if entry.client:
+                entries.append(entry)
+
+        if entries:
+
+            async def close_ble_clients():
+                for entry in entries:
+                    await entry.disconnect()
+
+            asyncio.create_task(close_ble_clients())
+
+        self._stop_common()
 
 
 class GoveeLanListener(asyncio.DatagramProtocol):

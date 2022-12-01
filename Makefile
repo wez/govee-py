@@ -13,6 +13,7 @@ test:
 	pytest
 
 setup:
+	pip install build
 	pip install flit
 	flit install --deps=develop
 
