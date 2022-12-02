@@ -175,10 +175,17 @@ class GoveeController:
 
     def register_ble_device(self, ble_device: BLEDevice):
         """Registers a known-Govee bluetooth device by its address"""
-        entry = self.ble_devices.get(ble_device.address, None)
-        if not entry:
+        changed = False
+
+        if entry := self.ble_devices.get(ble_device.address, None):
+            # Update the device to the latest version provided by the caller
+            if entry.device != ble_device:
+                changed = True
+            entry.device = ble_device
+        else:
             entry = BleDeviceEntry(ble_device)
             self.ble_devices[ble_device.address] = entry
+            changed = True
 
         # We don't have enough information available via BLE
         # to synthesize new, complete devices just from BLE,
@@ -187,8 +194,10 @@ class GoveeController:
         # NOTE: we COULD do this, if we generated a placeholder
         # with just the BLE info, then swizzled it out later
         if dev := self._get_device_by_ble_address(ble_device.address):
-            if dev.ble_device is None:
+            if dev.ble_device is None or dev.ble_device != ble_device:
                 dev.ble_device = ble_device
+                changed = True
+            if changed:
                 self._fire_device_change(dev)
 
     async def query_ble_devices(self) -> List[BLEDevice]:
@@ -357,6 +366,7 @@ class GoveeController:
         try:
             _LOGGER.debug("sending ble control to %s: %s", device.device_id, pkt)
             await entry.write_gatt_char(pkt)
+            _LOGGER.debug("ble control was sent successfully")
             return
         except BleakError as exc:
             error = exc
