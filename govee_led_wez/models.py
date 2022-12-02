@@ -33,4 +33,5 @@ INFO_BY_MODEL: Dict[str, ModelInfo] = {
     "H617E": ModelInfo(BleColorMode.MODE_D, ble_brightness_max=100),
     "H6102": ModelInfo(BleColorMode.MODE_1501, ble_brightness_max=100),
     "H6072": ModelInfo(BleColorMode.MODE_1501, ble_brightness_max=100),
+    "H6058": ModelInfo(BleColorMode.MODE_D, ble_brightness_max=100),
 }
