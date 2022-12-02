@@ -748,7 +748,7 @@ class GoveeController:
             changed = existing.lan_definition != device.lan_definition
             if changed:
                 existing.lan_definition = device.lan_definition
-            if self._match_devices(device):
+            if self._match_devices(existing):
                 changed = True
             if changed:
                 self._fire_device_change(existing)
