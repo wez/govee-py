@@ -1,6 +1,6 @@
 [project]
 name = "govee_led_wez"
-version = "0.0.9"
+version = "0.0.10"
 authors = [
   { name="Wez Furlong", email="wez@wezfurlong.org" },
 ]
@@ -16,7 +16,7 @@ dependencies = [
   "certifi>=2021.10.8",
   "aiohttp>=3.7.1",
   "bleak>=0.19.0",
-  "bleak-retry-connector>=2.8.7",
+  "bleak-retry-connector>=2.8.5",
 ]
 
 [tool.pylint]
