@@ -197,6 +197,11 @@ class GoveeController:
             if dev.ble_device is None or dev.ble_device != ble_device:
                 dev.ble_device = ble_device
                 changed = True
+                _LOGGER.info(
+                    "Associating BLE device %s with %s",
+                    ble_device.address,
+                    dev.device_id,
+                )
             if changed:
                 self._fire_device_change(dev)
 
@@ -816,6 +821,11 @@ class GoveeController:
                 if device.device_id.endswith(entry.device.address):
                     device.ble_device = entry.device
                     changed = True
+                    _LOGGER.info(
+                        "Associating BLE device %s with %s",
+                        entry.device.address,
+                        device.device_id,
+                    )
 
         if not device.http_definition and self.http_devices:
             device.http_definition = self.http_devices.get(device.device_id, None)
