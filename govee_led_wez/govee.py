@@ -197,8 +197,8 @@ class GoveeController:
             if dev.ble_device is None or dev.ble_device != ble_device:
                 dev.ble_device = ble_device
                 changed = True
-                _LOGGER.info(
-                    "Associating BLE device %s with %s",
+                _LOGGER.debug(
+                    "Updating BLE device association for %s with %s",
                     ble_device.address,
                     dev.device_id,
                 )
@@ -373,7 +373,7 @@ class GoveeController:
             await entry.write_gatt_char(pkt)
             _LOGGER.debug("ble control was sent successfully")
             return
-        except BleakError as exc:
+        except (BleakError, asyncio.CancelledError, asyncio.TimeoutError) as exc:
             error = exc
             _LOGGER.debug(
                 "unable to connect to %s via BLE",
@@ -434,7 +434,7 @@ class GoveeController:
                 device.state = assumed_state
                 self._fire_device_change(device)
                 return device.state
-            except BleakError as exc:
+            except (BleakError, asyncio.CancelledError, asyncio.TimeoutError) as exc:
                 _LOGGER.debug(
                     "unable to connect to %s via BLE, will use other methods",
                     device.device_id,
@@ -512,7 +512,7 @@ class GoveeController:
                 device.state = assumed_state
                 self._fire_device_change(device)
                 return device.state
-            except BleakError as exc:
+            except (BleakError, asyncio.CancelledError, asyncio.TimeoutError) as exc:
                 _LOGGER.debug(
                     "unable to connect to %s via BLE, will use other methods",
                     device.device_id,
@@ -592,7 +592,7 @@ class GoveeController:
                 device.state = assumed_state
                 self._fire_device_change(device)
                 return device.state
-            except BleakError as exc:
+            except (BleakError, asyncio.CancelledError, asyncio.TimeoutError) as exc:
                 _LOGGER.debug(
                     "unable to connect to %s via BLE, will use other methods",
                     device.device_id,
@@ -669,7 +669,7 @@ class GoveeController:
                 device.state = assumed_state
                 self._fire_device_change(device)
                 return device.state
-            except BleakError as exc:
+            except (BleakError, asyncio.CancelledError, asyncio.TimeoutError) as exc:
                 _LOGGER.debug(
                     "unable to connect to %s via BLE, will use other methods",
                     device.device_id,
