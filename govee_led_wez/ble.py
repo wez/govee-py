@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from bleak import AdvertisementData, BleakClient, BLEDevice
+from bleak_retry_connector import establish_connection
 
 from .color import GoveeColor
 from .models import BleColorMode, ModelInfo
@@ -48,9 +49,12 @@ class BleDeviceEntry:
                 self.client = None
                 self.last_use = None
 
-        client = BleakClient(self.device, disconnected_callback=disconnected)
-
-        await client.connect()
+        client = await establish_connection(
+            BleakClient,
+            self.device,
+            name=self.device.address,
+            disconnected_callback=disconnected,
+        )
         self.client = client
         self.last_use = time.monotonic()
         return client
@@ -59,6 +63,7 @@ class BleDeviceEntry:
         """Write a packet to the control characteristic.
         Will attempt to obtain a client implicitly"""
         client = await self.connect()
+        _LOGGER.debug("calling write_gatt_char %s %s", self.device, data)
         await client.write_gatt_char(GOVEE_CHR, data)
 
     async def disconnect(self):
