@@ -1,9 +1,5 @@
-from typing import Dict, Tuple
-
-# Copyright (c) 2022 Ben Potter
-# MIT License
-# Ported from js code found here:
-# <https://github.com/bwp91/homebridge-govee/blob/latest/lib/utils/colour.js>
+import math
+from typing import Tuple
 
 
 def clamp(value: int, lower: int, upper: int) -> int:
@@ -11,63 +7,32 @@ def clamp(value: int, lower: int, upper: int) -> int:
     return max(min(value, upper), lower)
 
 
-K_TO_RGB: Dict[int, Tuple[int, int, int]] = {
-    2000: (255, 141, 11),
-    2100: (255, 146, 29),
-    2200: (255, 147, 44),
-    2300: (255, 152, 54),
-    2400: (255, 157, 63),
-    2500: (255, 166, 69),
-    2600: (255, 170, 77),
-    2700: (255, 174, 84),
-    2800: (255, 173, 94),
-    2900: (255, 177, 101),
-    3000: (255, 180, 107),
-    3100: (255, 189, 111),
-    3200: (255, 187, 120),
-    3300: (255, 195, 124),
-    3400: (255, 198, 130),
-    3500: (255, 201, 135),
-    3600: (255, 203, 141),
-    3700: (255, 206, 146),
-    3800: (255, 204, 153),
-    3900: (255, 206, 159),
-    4000: (255, 213, 161),
-    4100: (255, 215, 166),
-    4200: (255, 217, 171),
-    4300: (255, 219, 175),
-    4400: (255, 221, 180),
-    4500: (255, 223, 184),
-    4600: (255, 225, 188),
-    4700: (255, 226, 192),
-    4800: (255, 228, 196),
-    4900: (255, 229, 200),
-    5000: (255, 231, 204),
-    5100: (255, 230, 210),
-    5200: (255, 234, 211),
-    5300: (255, 235, 215),
-    5400: (255, 237, 218),
-    5500: (255, 236, 224),
-    5600: (255, 238, 226),
-    5700: (255, 240, 228),
-    5800: (255, 241, 231),
-    5900: (255, 243, 234),
-    6000: (255, 244, 237),
-    6100: (255, 245, 240),
-    6200: (255, 246, 243),
-    6300: (255, 247, 247),
-    6400: (255, 248, 251),
-    6500: (255, 249, 253),
-    6600: (254, 249, 255),
-    6700: (252, 247, 255),
-    6800: (249, 246, 255),
-    6900: (247, 245, 255),
-    7000: (245, 243, 255),
-    7100: (243, 242, 255),
-}
+def k_to_rgb(
+    kelvin: int,
+) -> Tuple[int, int, int]:
+    """Compute an rgb value corresponding to a color temperature in kelvin.
+    Uses an approximation based on:
+    http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
+    """
+    kelvin = clamp(kelvin, 1000, 40000)
 
+    temperature = kelvin / 100.0
 
-def k_to_rgb(kelvin: int) -> Tuple[int, int, int]:
-    """Compute an rgb value corresponding to a color temperature in kelvin"""
-    kelvin = clamp(round(kelvin / 100) * 100, 2000, 7100)
-    return K_TO_RGB[kelvin]
+    if temperature <= 66:
+        red = 255.0
+    else:
+        red = 329.698727446 * math.pow(temperature - 60, -0.1332047592)
+
+    if temperature <= 66:
+        green = 99.4708025861 * math.log(temperature) - 161.1195681661
+    else:
+        green = 288.1221695283 * math.pow(temperature - 60, -0.0755148492)
+
+    if temperature >= 66:
+        blue = 255.0
+    elif temperature <= 19:
+        blue = 0.0
+    else:
+        blue = 138.5177312231 * math.log(temperature - 10) - 305.0447927307
+
+    return clamp(int(red), 0, 255), clamp(int(green), 0, 255), clamp(int(blue), 0, 255)
