@@ -57,7 +57,7 @@ async def http_get_devices(api_key: str) -> List[GoveeHttpDeviceDefinition]:
                             controllable=d["controllable"],
                             retrievable=d["retrievable"],
                             supported_commands=d["supportCmds"],
-                            properties=d["properties"],
+                            properties=d.get("properties", {}),
                         )
                         for d in data["data"]["devices"]
                     ]
