@@ -92,6 +92,7 @@ class GoveeController:
     ble_idler: Optional[asyncio.Task] = None
     http_poller: Optional[asyncio.Task] = None
     lan_pollers: List[asyncio.Task]
+    lan_source_address: Optional[str] = None
     http_devices: Dict[str, GoveeHttpDeviceDefinition]
     ble_devices: Dict[str, BleDeviceEntry]
     devices: Dict[str, GoveeDevice]
@@ -128,6 +129,16 @@ class GoveeController:
 
         interfaces = interfaces or ["0.0.0.0"]
         for iface in interfaces:
+            if self.lan_source_address:
+                # we're on a multi-homed system; we don't currently
+                # know enough to handle this correctly, so shrug for now.
+                # Handling this correctly would mean capturing the complete
+                # set of interfaces and then changing the sendto logic to
+                # try to match the correct one based on the destination IP
+                # address.
+                self.lan_source_address = None
+            else:
+                self.lan_source_address = iface
             self.lan_pollers.append(
                 asyncio.create_task(self._lan_poller(iface, interval))
             )
@@ -251,6 +262,8 @@ class GoveeController:
     def _send_lan_command(self, lan_definition: GoveeLanDeviceDefinition, cmd: Any):
         data = bytes(json.dumps(cmd), "utf-8")
         dgram_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if self.lan_source_address:
+            dgram_socket.bind((self.lan_source_address, 0))
         dgram_socket.sendto(data, (lan_definition.ip_addr, COMMAND_PORT))
 
     def _request_lan_status(self, lan_definition: GoveeLanDeviceDefinition):
